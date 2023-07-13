@@ -11,6 +11,7 @@ import string
 import logging
 from Datasets import Custom_Dataset
 
+
 # This file is exactly the same as Neo_Model.py but with training related
 # methods all stripped out.
 # The reason for this is, Lightning Deepspeed offload has a bug where
@@ -55,6 +56,7 @@ class NeoValid(pl.LightningModule):
 
         self.save_hyperparameters(hparams)
         self.model.resize_token_embeddings(len(self.tokenizer))
+        #self.validation_step_outputs = []
 
         self.target_length = self.hparams.target_length if self.hparams.target_length else self.hparams.input_length
         # getting the index of the target set if there is multiple val sets
@@ -142,7 +144,6 @@ class NeoValid(pl.LightningModule):
         input_ids = batch['source_ids']
         prompt = input_ids[..., :100]
         pred = self.model.generate(prompt, max_length=max_len)[..., 100:]
-        self.validation_step_outputs.append(pred) # Vicky added from https://lightning.ai/docs/pytorch/stable/common/lightning_module.html
         value_dict['preds'] = pred
 
         # Recalculate loss individually
@@ -167,6 +168,7 @@ class NeoValid(pl.LightningModule):
 
         value_dict['doc_id'] = batch['doc_id']
         value_dict['loss'] = mean_losses
+        #self.validation_step_outputs.append(value_dict)
         return value_dict
 
     def validation_ma(self, batch, dataset_name):
@@ -233,7 +235,7 @@ class NeoValid(pl.LightningModule):
         for n in N:
             for i, _ in enumerate(numerator[n]):
                 el_score[n][i] = numerator[n][i] / \
-                    (max_len - 1 - (n - 1))
+                                 (max_len - 1 - (n - 1))
 
         for n in N:
             self.log(f'{dataset_name}/el_{n}-gram',
@@ -346,7 +348,6 @@ class NeoValid(pl.LightningModule):
             cnt = 0
             for logits, inp, inplen, cont_toks \
                     in zip(multi_logits, inps, inplens, cont_toks_list):
-
                 # Slice to original seq length
                 contlen = len(cont_toks)
                 original_logits = logits
@@ -520,7 +521,7 @@ class NeoValid(pl.LightningModule):
 
         batched_inps = torch.cat(inps, dim=0)  # [batch, padding_length
         multi_logits = self._model_call(batched_inps)  # [batch, padding_length, vocab]
-        
+
         full_logits, full_cont_toks = [], []
         for logits, inp, inplen, cont_toks \
                 in zip(multi_logits, inps, inplens, cont_toks_list):
@@ -548,7 +549,7 @@ class NeoValid(pl.LightningModule):
 
         loss_fct = torch.nn.CrossEntropyLoss()
         loss = loss_fct(full_logits, full_cont_toks)
-        
+
         generate_input = []
         for source_id in source_ids:
             inplen = len(source_id)
@@ -562,7 +563,8 @@ class NeoValid(pl.LightningModule):
 
         inputs = torch.cat(generate_input, dim=0)
         attention_masks = inputs.ne(self.tokenizer.pad_token_id).long()
-        generated_ids = self.model.generate(inputs, attention_mask=attention_masks, max_new_tokens=32)[:, padding_length:]
+        generated_ids = self.model.generate(inputs, attention_mask=attention_masks, max_new_tokens=32)[:,
+                        padding_length:]
         generated_text = self.tokenizer.batch_decode(generated_ids.tolist(), skip_special_tokens=True)
         generated_text = [t.split('\nUser ')[0] for t in generated_text]
         target_text = self.tokenizer.batch_decode(target_ids, skip_special_tokens=True)
@@ -575,7 +577,7 @@ class NeoValid(pl.LightningModule):
             print(f'[Ground Truth] {t}')
             print(f'[Generated] {g}')
             print('---------------------')
-        
+
         f1_batched = 0
         for g, t in zip(generated_text, target_text):
             f1_batched += self._f1_score(g, t)
@@ -598,7 +600,7 @@ class NeoValid(pl.LightningModule):
             sync_dist=True)
 
     # Reduce results from gpus to a single dataframe + determine early stopping
-    def on_validation_epoch_end(self): # Vicky removed output
+    def validation_epoch_end(self, output): # N.B if later than v2.0.0 of pl, then need to remove output and change to on_validation_epoch_end, then uncomment all vickys
         if self.hparams.mode in ['unlearn']:
             if self.init_validation:
                 log_col_name = 'init'
@@ -606,7 +608,7 @@ class NeoValid(pl.LightningModule):
                 log_col_name = f'{self.current_epoch:02d}'
 
             # reduce all output from gpus
-            output = self.validation_step_outputs  # Vicky added
+            #output = self.validation_step_outputs
             if len(self.hparams.valid_sets) > 1:
                 outputs = self.all_gather(output)[self.target_validation_idx]
             else:
@@ -655,7 +657,7 @@ class NeoValid(pl.LightningModule):
 
     def on_validation_end(self):
         if self.hparams.mode in [
-                'unlearn'] and self.init_validation and self.local_rank == 0:
+            'unlearn'] and self.init_validation and self.local_rank == 0:
             self.valid_df.to_csv(
                 f'outputs/init_{self.hparams.wandb_run_name}.csv')
             self.init_validation = False
@@ -712,7 +714,7 @@ class NeoValid(pl.LightningModule):
                 # For the unlearning target data, match the eval batch_size to
                 # train batch_size
                 batch_size = self.hparams.train_batch_size * \
-                    self.hparams.gradient_accumulation_steps
+                             self.hparams.gradient_accumulation_steps
                 dataloaders.append(
                     DataLoader(
                         dataset,
@@ -744,6 +746,7 @@ class NeoValid(pl.LightningModule):
 
     def normalize_answer(self, s):
         """Lower text and remove punctuation, articles and extra whitespace."""
+
         def remove_articles(text):
             return re.sub(r"\b(a|an|the)\b", " ", text)
 
