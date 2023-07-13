@@ -142,6 +142,7 @@ class NeoValid(pl.LightningModule):
         input_ids = batch['source_ids']
         prompt = input_ids[..., :100]
         pred = self.model.generate(prompt, max_length=max_len)[..., 100:]
+        self.validation_step_outputs.append(pred) # Vicky added from https://lightning.ai/docs/pytorch/stable/common/lightning_module.html
         value_dict['preds'] = pred
 
         # Recalculate loss individually
@@ -597,7 +598,7 @@ class NeoValid(pl.LightningModule):
             sync_dist=True)
 
     # Reduce results from gpus to a single dataframe + determine early stopping
-    def validation_epoch_end(self, output):
+    def on_validation_epoch_end(self): # Vicky removed output
         if self.hparams.mode in ['unlearn']:
             if self.init_validation:
                 log_col_name = 'init'
@@ -605,6 +606,7 @@ class NeoValid(pl.LightningModule):
                 log_col_name = f'{self.current_epoch:02d}'
 
             # reduce all output from gpus
+            output = self.validation_step_outputs  # Vicky added
             if len(self.hparams.valid_sets) > 1:
                 outputs = self.all_gather(output)[self.target_validation_idx]
             else:

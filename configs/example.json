@@ -57,5 +57,5 @@
     "num_workers": 64,
     "strategy": "deepspeed_stage_2_offload",
     "fp16": true,
-    "wandb_log": true
+    "wandb_log": false
 }
